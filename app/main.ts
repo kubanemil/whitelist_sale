@@ -1,59 +1,85 @@
+// Migrations are an early feature. Currently, they're nothing more than this
+// single deploy script that's invoked from the CLI, injecting a provider
+// configured from the workspace's Anchor.toml.
+
+
 import * as anchor from "@coral-xyz/anchor";
-import { PublicKey, SystemProgram } from "@solana/web3.js";
-import { TOKEN_PROGRAM_ID, ASSOCIATED_TOKEN_PROGRAM_ID } from "@solana/spl-token";
+import { Program, BN } from "@coral-xyz/anchor";
 import { WhitelistSale } from "../target/types/whitelist_sale";
+import { assert, expect } from "chai";
 
-// Configure the client to use the local cluster.
-const provider = anchor.AnchorProvider.env();
-anchor.setProvider(provider);
+const MINT_SEED = "mint";
+const WHITELIST_SEED = "whitelist";
+const METADATA_SEED = "metadata";
+const CONFIG_SEED = "config";
+const MPL_TOKEN_METADATA_PROGRAM_ID = new anchor.web3.PublicKey("metaqbxxUerdq28cj1RbAWkYQm3ybzjb6a8bt518x1s");
+const DECIMALS = 9;
 
-const program = anchor.workspace.WhitelistSale as anchor.Program<WhitelistSale>;
 
-interface MintTokensContext {
-  mint: PublicKey;
-  destination: PublicKey;
-  payer: PublicKey;
-  rent: PublicKey;
-  systemProgram: PublicKey;
-  tokenProgram: PublicKey;
-  associatedTokenProgram: PublicKey;
-}
+async function main() {
+  const provider = anchor.AnchorProvider.env();
+  anchor.setProvider(provider);
 
-async function mintTokens(quantity: number) {
-  const mintKey = new PublicKey("8SgtTviRh89tu2nPNA7G8fNaGwhdjVgg7o4xpC9DSfaQ");
-  const payerKey = provider.wallet.publicKey;
-  const destination = await anchor.utils.token.associatedAddress({
-    mint: mintKey,
-    owner: payerKey,
-  });
+  const program = anchor.workspace.WhitelistSale as Program<WhitelistSale>;
+  const payer = provider.wallet.publicKey;
+  anchor.setProvider(provider);
 
-  const [mintPda, mintBump] = await PublicKey.findProgramAddressSync(
-    [Buffer.from("mint")],
+  const [mintInfoAddress] = anchor.web3.PublicKey.findProgramAddressSync(
+    [Buffer.from(MINT_SEED)],
     program.programId
   );
 
-  const context: MintTokensContext = {
-    mint: mintPda,
-    destination,
-    payer: payerKey,
-    rent: anchor.web3.SYSVAR_RENT_PUBKEY,
-    systemProgram: SystemProgram.programId,
-    tokenProgram: TOKEN_PROGRAM_ID,
-    associatedTokenProgram: ASSOCIATED_TOKEN_PROGRAM_ID,
+  const metadata = {
+    name: "My Emil Token",
+    symbol: "EMIL",
+    uri: "https://turquoise-used-shark-708.mypinata.cloud/ipfs/QmbW8HunnGGccHBCfWvchb7GMWwwPqmAtxnu4Hw7JAvJpc",
+    decimals: DECIMALS,
   };
 
-  await program.methods
-    .mintTokens(new anchor.BN(quantity))
-    .accounts(context)
-    .signers([])
-    .rpc();
+  const [metadataAddress] = anchor.web3.PublicKey.findProgramAddressSync(
+    [
+      Buffer.from(METADATA_SEED),
+      MPL_TOKEN_METADATA_PROGRAM_ID.toBuffer(),
+      mintInfoAddress.toBuffer(),
+    ],
+    MPL_TOKEN_METADATA_PROGRAM_ID
+  );
+
+  const [whitelistAddress] = anchor.web3.PublicKey.findProgramAddressSync(
+    [Buffer.from(WHITELIST_SEED)],
+    program.programId
+  );
+
+  const [configAddress] = anchor.web3.PublicKey.findProgramAddressSync(
+    [Buffer.from(CONFIG_SEED)],
+    program.programId
+  );
+
+  const info = await provider.connection.getAccountInfo(mintInfoAddress);
+  if (info) {
+    console.log("Already initialized. Skipping initialization.");
+  }
+
+  const context = {
+    payer,
+    mint: mintInfoAddress,
+    whitelist: whitelistAddress,
+    metadata: metadataAddress,
+    config: configAddress,
+    mplTokenMetadataProgram: MPL_TOKEN_METADATA_PROGRAM_ID,
+  };
+
+  // call initToken()
+  const txHash = await program.methods.initToken(metadata).accounts(context).rpc();
+
+  await provider.connection.confirmTransaction(txHash, 'finalized');
+  console.log(`initToken() TX:  https://explorer.solana.com/tx/${txHash}?cluster=custom`);
+
+  const newInfo = await provider.connection.getAccountInfo(mintInfoAddress);
+  assert(newInfo, "Mint should be initialized.");
+
 }
 
-// Call the function to mint tokens
-mintTokens(100).then(() => {
-  console.log("Tokens minted successfully.");
-}).catch(err => {
-  console.error("Error minting tokens:", err);
-});
-
-
+main().then(() => {
+  console.log("FINISHED")
+})

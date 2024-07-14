@@ -1,3 +1,9 @@
 
 
 use PDA to whitelist
+
+ProgramID
+8KeThqsiCyHR7Uez2W2RZFKAxqYWVR2PqU4akDmAWHjT
+
+TokenMintID
+2jLRwAqYqT44so51m4cox8u3k8b9nEiqXRACBN7Mikyb

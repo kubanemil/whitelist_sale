@@ -4,7 +4,7 @@ pub mod errors;
 pub mod instructions;
 use instructions::*;
 
-declare_id!("C8sbuNSCxsqDZdLSqBi7LUBgTYRtjoqgyLARdMq36pvK");
+declare_id!("8KeThqsiCyHR7Uez2W2RZFKAxqYWVR2PqU4akDmAWHjT");
 
 const TOKEN_PRICE: u64 = 2 * 10u64.pow(9);
 const PURCHASE_LIMIT: u64 = 100;

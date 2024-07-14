@@ -1,7 +1,7 @@
 import * as anchor from "@coral-xyz/anchor";
 import { Program, BN } from "@coral-xyz/anchor";
 import { WhitelistSale } from "../target/types/whitelist_sale";
-import { TOKEN_PROGRAM_ID, createMint, createAccount, mintTo } from "@solana/spl-token";
+import { getMint, createAccount, mintTo, TOKEN_PROGRAM_ID } from "@solana/spl-token";
 import { assert } from "chai";
 
 /* If testing with a local cluster, deploy Metaplex Metadata program with:
@@ -9,167 +9,269 @@ $ solana-test-validator -r --bpf-program metaqbxxUerdq28cj1RbAWkYQm3ybzjb6a8bt51
 And skip local validator setup when running the tests:
 $ anchor test --skip-local-validator
 */
+
+const MINT_SEED = "mint";
+const WHITELIST_SEED = "whitelist";
+const METADATA_SEED = "metadata";
+const MPL_TOKEN_METADATA_PROGRAM_ID = new anchor.web3.PublicKey("metaqbxxUerdq28cj1RbAWkYQm3ybzjb6a8bt518x1s");
+const DECIMALS = 9;
+
+
 describe("whitelist_sale", () => {
-  const provider = anchor.AnchorProvider.env();
-  anchor.setProvider(provider);
+    const program = anchor.workspace.WhitelistSale as Program<WhitelistSale>;
+    const provider = anchor.AnchorProvider.env();
+    const payer = provider.wallet.publicKey;
+    anchor.setProvider(provider);
 
+    const otherAcc = anchor.web3.Keypair.generate();
 
-  const program = anchor.workspace.WhitelistSale as Program<WhitelistSale>;
-  const config = anchor.web3.PublicKey.findProgramAddressSync([Buffer.from("config")], program.programId);
+    const [mintInfoAddress] = anchor.web3.PublicKey.findProgramAddressSync(
+        [Buffer.from(MINT_SEED)],
+        program.programId
+    );
 
-  const METADATA_SEED = "metadata";
-  const TOKEN_METADATA_PROGRAM_ID = new anchor.web3.PublicKey("metaqbxxUerdq28cj1RbAWkYQm3ybzjb6a8bt518x1s");
-  const MINT_SEED = "mint";
+    const [whitelistAddress] = anchor.web3.PublicKey.findProgramAddressSync(
+        [Buffer.from(WHITELIST_SEED)],
+        program.programId
+    );
 
-  // Data for our tests
-  const payer = provider.wallet.publicKey;
-  const metadata = {
-    name: "My Shrek Token",
-    symbol: "SHREK",
-    uri: "https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcS92cMXfUwQSMFMcS-U9JrsKK5XNJMw-P-Sus1MuxmWVHVJ03AC-DtMc-betZYjA6UaD7O-fmJ6MrXj4urZStnTHZr_r6q7BMC4hYDA6IE",
-    decimals: 9,
-  };
-  const mintAmount = 10;
-  const [mint] = anchor.web3.PublicKey.findProgramAddressSync(
-    [Buffer.from(MINT_SEED)],
-    program.programId
-  );
-
-  const [metadataAddress] = anchor.web3.PublicKey.findProgramAddressSync(
-    [
-      Buffer.from(METADATA_SEED),
-      TOKEN_METADATA_PROGRAM_ID.toBuffer(),
-      mint.toBuffer(),
-    ],
-    TOKEN_METADATA_PROGRAM_ID
-  );
-
-
-  it("Is initialized!", async () => {
-    const info = await provider.connection.getAccountInfo(mint);
-    if (info) {
-      return; // Do not attempt to initialize if already initialized
-    }
-    console.log("  Mint not found. Attempting to initialize.");
-
-    const context = {
-      metadata: metadataAddress,
-      mint,
-      payer,
-      rent: anchor.web3.SYSVAR_RENT_PUBKEY,
-      systemProgram: anchor.web3.SystemProgram.programId,
-      tokenProgram: anchor.utils.token.TOKEN_PROGRAM_ID,
-      tokenMetadataProgram: TOKEN_METADATA_PROGRAM_ID,
+    const metadata = {
+        name: "My Emil Token",
+        symbol: "EMIL",
+        uri: "https://turquoise-used-shark-708.mypinata.cloud/ipfs/QmbW8HunnGGccHBCfWvchb7GMWwwPqmAtxnu4Hw7JAvJpc",
+        decimals: DECIMALS,
     };
 
-    const txHash = await program.methods
-      .initToken(metadata)
-      .accounts(context)
-      .rpc();
+    const [metadataAddress] = anchor.web3.PublicKey.findProgramAddressSync(
+        [
+            Buffer.from(METADATA_SEED),
+            MPL_TOKEN_METADATA_PROGRAM_ID.toBuffer(),
+            mintInfoAddress.toBuffer(),
+        ],
+        MPL_TOKEN_METADATA_PROGRAM_ID
+    );
 
-    await provider.connection.confirmTransaction(txHash, 'finalized');
-    console.log(`  https://explorer.solana.com/tx/${txHash}?cluster=custom`);
-    const newInfo = await provider.connection.getAccountInfo(mint);
 
-    assert(newInfo, "  Mint should be initialized.");
-  });
+    it("Is initialized!", async () => {
+        const info = await provider.connection.getAccountInfo(mintInfoAddress);
+        if (info) {
+            console.log("Already initialized. Skipping initialization.");
+            return;
+        }
 
-  it("mint tokens", async () => {
+        const context = {
+            payer,
+            mint: mintInfoAddress,
+            whitelist: whitelistAddress,
+            metadata: metadataAddress,
+            mplTokenMetadataProgram: MPL_TOKEN_METADATA_PROGRAM_ID,
+        };
 
-    const destination = await anchor.utils.token.associatedAddress({
-      mint: mint,
-      owner: payer,
+        // call initToken()
+        const txHash = await program.methods.initToken(metadata).accounts(context).rpc();
+
+        await provider.connection.confirmTransaction(txHash, 'finalized');
+        console.log(`initToken() TX:  https://explorer.solana.com/tx/${txHash}?cluster=custom`);
+
+        const newInfo = await provider.connection.getAccountInfo(mintInfoAddress);
+        assert(newInfo, "Mint should be initialized.");
     });
 
-    let initialBalance: number;
-    try {
-      const balance = (await provider.connection.getTokenAccountBalance(destination))
-      initialBalance = balance.value.uiAmount;
-    } catch {
-      // Token account not yet initiated has 0 balance
-      initialBalance = 0;
-    }
+    it("transfer tokens", async () => {
+        const context = {
+            from: payer,
+            to: otherAcc.publicKey,
+        };
 
-    const context = {
-      mint,
-      destination,
-      payer,
-      rent: anchor.web3.SYSVAR_RENT_PUBKEY,
-      systemProgram: anchor.web3.SystemProgram.programId,
-      tokenProgram: anchor.utils.token.TOKEN_PROGRAM_ID,
-      associatedTokenProgram: anchor.utils.token.ASSOCIATED_PROGRAM_ID,
-    };
+        const otherInitialBalance = await provider.connection.getBalance(otherAcc.publicKey);
 
-    const txHash = await program.methods
-      .mintTokens(new BN(mintAmount * 10 ** metadata.decimals))
-      .accounts(context)
-      .rpc();
-    await provider.connection.confirmTransaction(txHash);
-    console.log(`  https://explorer.solana.com/tx/${txHash}?cluster=custom`);
+        const amount = 10 ** 9
+        // purchaseTokens()
+        const txHash = await program.methods
+            .transferLamports(new BN(amount))
+            .accounts(context)
+            .rpc();
 
-    const postBalance = (
-      await provider.connection.getTokenAccountBalance(destination)
-    ).value.uiAmount;
-    assert.equal(
-      initialBalance + mintAmount,
-      postBalance,
-      "Post balance should equal initial plus mint amount"
-    );
-  });
+        await provider.connection.confirmTransaction(txHash);
+        console.log(`transferLamports() TX: https://explorer.solana.com/tx/${txHash}?cluster=custom`);
 
-  it("mint tokens directly using SPL Token program", async () => {
+        const otherPostBalance = await provider.connection.getBalance(otherAcc.publicKey);
+        assert(otherPostBalance == otherInitialBalance + amount, "Unexpected postBalance");
+    });
 
-    let otherPayer = anchor.web3.Keypair.generate();
-    await airdrop(otherPayer.publicKey, provider);
-    
-    // Create a new mint
-    const newMint = await createMint(
-      provider.connection,
-      otherPayer,
-      otherPayer.publicKey, // Mint authority
-      null, // Freeze authority (optional)
-      metadata.decimals, // Decimals
-    );
+    it("mint tokens", async () => {
+        const mintAmount = 10;
+        const destination = await anchor.utils.token.associatedAddress({
+            mint: mintInfoAddress,
+            owner: payer,
+        });
 
-    // Create a token account for the payer
-    const payerTokenAccount = await createAccount(
-      provider.connection,
-      otherPayer, // Fee payer
-      newMint, // Mint
-      otherPayer.publicKey, // Owner of the account
-    );
+        let initialBalance: number;
+        try {
+            const balance = (await provider.connection.getTokenAccountBalance(destination))
+            initialBalance = Number(balance.value.amount);
+        } catch {
+            initialBalance = 0; // Token account not yet initiated has 0 balance
+        }
+        console.log(`Initial balance: ${initialBalance}`);
 
-    // Mint tokens to the token account
-    await mintTo(
-      provider.connection,
-      otherPayer,
-      newMint, // Mint
-      payerTokenAccount, // Destination token account
-      otherPayer.publicKey, // Mint authority
-      mintAmount * 10 ** metadata.decimals, // Amount to mint
-      [], // Signers (optional)
-    );
+        const otherInitialBalance = await provider.connection.getBalance(otherAcc.publicKey);
 
-    // Verify the balance of the token account
-    const balance = await provider.connection.getTokenAccountBalance(payerTokenAccount);
-    const tokenBalance = balance.value.uiAmount;
 
-    assert.equal(tokenBalance, mintAmount, "Token account balance should be equal to mint amount");
-    console.log(`  Token account balance: ${tokenBalance}`);
-  });
+        const context = {
+            payer,
+            destination,
+            mint: mintInfoAddress,
+            receiver: otherAcc.publicKey,
+            whitelist: whitelistAddress,
+        };
+
+        // purchaseTokens()
+        const txHash = await program.methods
+            .purchaseTokens(new BN(mintAmount))
+            .accounts(context)
+            .rpc();
+
+        await provider.connection.confirmTransaction(txHash);
+        console.log(`purchaseTokens() TX: https://explorer.solana.com/tx/${txHash}?cluster=custom`);
+
+        const postTokenBalance = await provider.connection.getTokenAccountBalance(destination)
+        assert.equal(initialBalance + mintAmount, Number(postTokenBalance.value.amount), "Unexpected postTokenBalance");
+
+        const otherPostBalance = await provider.connection.getBalance(otherAcc.publicKey);
+        assert(otherInitialBalance < otherPostBalance, "Did not receive the payment");
+    });
+
+    it("mint tokens without whitelist", async () => {
+        await airdrop(otherAcc.publicKey, provider);
+
+        const mintAmount = 10;
+        const receiverAddress = await anchor.utils.token.associatedAddress({
+            mint: mintInfoAddress,
+            owner: otherAcc.publicKey,
+        });
+
+        let initialBalance: number;
+        try {
+            const balance = (await provider.connection.getTokenAccountBalance(receiverAddress))
+            initialBalance = balance.value.uiAmount;
+        } catch {
+            initialBalance = 0; // Token account not yet initiated has 0 balance
+        }
+
+        const otherInitialBalance = await provider.connection.getBalance(otherAcc.publicKey);
+
+        const context = {
+            payer: otherAcc.publicKey,
+            mint: mintInfoAddress,
+            receiver: payer,
+            whitelist: whitelistAddress,
+            destination: receiverAddress,
+        };
+
+        // purchaseTokens()
+        try {
+            await program.methods
+                .purchaseTokens(new BN(mintAmount))
+                .accounts(context)
+                .signers([otherAcc])
+                .rpc();
+            assert(false, "Minting without whitelist should fail");
+        } catch (e) {
+            if (!String(e).includes("You are not whitelisted")) {
+                console.error(e);
+                assert(false, "Minting without whitelist failed unexpectedly");
+            }
+        }
+    });
+
+    it("mint tokens directly using SPL Token program", async () => {
+        let otherPayer = anchor.web3.Keypair.generate();
+        await airdrop(otherPayer.publicKey, provider);
+
+        const receiverAddress = await anchor.utils.token.associatedAddress({
+            mint: mintInfoAddress,
+            owner: payer,
+        });
+
+        try {
+            await mintTo(
+                provider.connection,
+                otherPayer,
+                mintInfoAddress,
+                receiverAddress,
+                mintInfoAddress,
+                7 * 10 ** metadata.decimals,
+            );
+            assert(false, "Minting should fail");
+        } catch (e) {
+            if (!String(e).includes("Signature verification failed")) {
+                console.error(e);
+                assert(false, "Minting from SPL failed unexpectedly");
+            }
+        }
+    });
+
+    it("reinitiation attack", async () => {
+        const context = {
+            payer,
+            mint: mintInfoAddress,
+            whitelist: whitelistAddress,
+            metadata: metadataAddress,
+            mplTokenMetadataProgram: MPL_TOKEN_METADATA_PROGRAM_ID,
+        };
+
+        // call initToken() again
+        try {
+            await program.methods.initToken(metadata).accounts(context).rpc();
+            assert(false, "Reinitiation attack should fail");
+        } catch (e) {
+            if (!String(e).includes("already in use")) {
+                console.error(e);
+                assert(false, "Reinitiation attack failed unexpectedly");
+            }
+        }
+    });
+
+    it("reinitiation with different mint seed", async () => {
+        const [otherMintInfoAddress] = anchor.web3.PublicKey.findProgramAddressSync(
+            [Buffer.from("other_mint")],
+            program.programId
+        );
+        const context = {
+            payer,
+            mint: otherMintInfoAddress,
+            whitelist: whitelistAddress,
+            metadata: metadataAddress,
+            mplTokenMetadataProgram: MPL_TOKEN_METADATA_PROGRAM_ID,
+        };
+
+        // call initToken() again
+        try {
+            await program.methods.initToken(metadata).accounts(context).rpc();
+            assert(false, "Reinitiation attack should fail");
+        } catch (e) {
+            if (!String(e).includes("A seeds constraint was violated")) {
+                console.error(e);
+                assert(false, "Reinitiation attack with different seed failed unexpectedly");
+            }
+        }
+    });
 });
 
 
-async function airdrop(airdropAddress: anchor.web3.PublicKey, provider: anchor.Provider ) {
-  const airdropAmount = 10;
+async function airdrop(airdropAddress: anchor.web3.PublicKey, provider: anchor.Provider) {
+    const airdropAmount = 10;
 
-  // Request airdrop
-  await provider.connection.confirmTransaction(
-    await provider.connection.requestAirdrop(airdropAddress, airdropAmount * 10 ** 9),
-    "confirmed"
-  );
+    await provider.connection.confirmTransaction(
+        await provider.connection.requestAirdrop(airdropAddress, airdropAmount * 10 ** DECIMALS),
+        "confirmed"
+    );
 
-  // Check balance after airdrop
-  const AirBalance = await provider.connection.getBalance(airdropAddress);
-  console.log(`  Airdrop successful! New balance: ${AirBalance / 10 ** 9} SOL`);
+    const AirBalance = await provider.connection.getBalance(airdropAddress);
+    console.log(`  Airdrop successful. Balance: ${AirBalance / 10 ** DECIMALS} SOL`);
+}
+
+async function getBalance() {
+
 }

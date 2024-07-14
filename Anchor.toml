@@ -5,7 +5,7 @@ seeds = false
 skip-lint = false
 
 [programs.localnet]
-whitelist_sale = "DxgzJxFo75TJBMt3TRawMniztMRhC9nWKwsfY1xBqJEh"
+whitelist_sale = "C8sbuNSCxsqDZdLSqBi7LUBgTYRtjoqgyLARdMq36pvK"
 
 [registry]
 url = "https://api.apr.dev"

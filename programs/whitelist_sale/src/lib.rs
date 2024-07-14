@@ -33,8 +33,8 @@ mod whitelist_sale {
         Ok(())
     }
 
-    pub fn transfer_lamports(ctx: Context<TransferLamports>, amount: u64) -> Result<()> {
-        transfer_lamports_(ctx, amount)?;
+    pub fn withdraw_lamports(ctx: Context<Withdraw>) -> Result<()> {
+        withdraw_lamports_(ctx)?;
         Ok(())
     }
 }

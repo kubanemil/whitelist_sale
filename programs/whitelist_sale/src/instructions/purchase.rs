@@ -1,5 +1,6 @@
 use crate::errors::ErrorCode;
 use crate::instructions::whitelist::Whitelist;
+use crate::instructions::Config;
 use crate::{PURCHASE_LIMIT, TOKEN_PRICE};
 use anchor_lang::prelude::*;
 use anchor_spl::{
@@ -32,14 +33,14 @@ pub struct PurchaseToken<'info> {
     pub payer: Signer<'info>,
 
     #[account(mut)]
-    /// CHECK: destination account
-    pub receiver: AccountInfo<'info>,
+    pub config: Account<'info, Config>,
 
     pub rent: Sysvar<'info, Rent>,
     pub system_program: Program<'info, System>,
     pub token_program: Program<'info, Token>,
     pub associated_token_program: Program<'info, AssociatedToken>,
 }
+
 
 pub fn purchase_tokens_(ctx: Context<PurchaseToken>, quantity: u64) -> Result<()> {
     let seeds = &["mint".as_bytes(), &[ctx.bumps.mint]];
@@ -64,14 +65,14 @@ pub fn purchase_tokens_(ctx: Context<PurchaseToken>, quantity: u64) -> Result<()
 
     let transfer_ix = anchor_lang::solana_program::system_instruction::transfer(
         &ctx.accounts.payer.key(),
-        &ctx.accounts.receiver.key(),
+        &ctx.accounts.config.key(),
         cost,
     );
     anchor_lang::solana_program::program::invoke(
         &transfer_ix,
         &[
             ctx.accounts.payer.to_account_info(),
-            ctx.accounts.receiver.to_account_info(),
+            ctx.accounts.config.to_account_info(),
         ],
     )?;
 

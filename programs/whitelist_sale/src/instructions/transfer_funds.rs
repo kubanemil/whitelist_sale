@@ -1,34 +1,37 @@
 use anchor_lang::prelude::*;
+use crate::instructions::Config;
+use crate::errors::ErrorCode;
+
 
 #[derive(Accounts)]
-pub struct TransferLamports<'info> {
+pub struct Withdraw<'info> {
     #[account(mut)]
-    pub from: Signer<'info>,
-    #[account(mut)]
-    /// CHECK: destination account
-    pub to: AccountInfo<'info>,
+    pub config: Account<'info, Config>,
+    pub owner: Signer<'info>,
+    pub rent: Sysvar<'info, Rent>,
     pub system_program: Program<'info, System>,
 }
 
-pub fn transfer_lamports_(ctx: Context<TransferLamports>, amount: u64) -> Result<()> {
-    let from_account = &ctx.accounts.from;
-    let to_account = &ctx.accounts.to;
 
-    let transfer_instruction = anchor_lang::solana_program::system_instruction::transfer(
-        from_account.key,
-        to_account.key,
-        amount,
-    );
+pub fn withdraw_lamports_(ctx: Context<Withdraw>) -> Result<()> {
+    if ctx.accounts.config.owner != ctx.accounts.owner.key() {
+        return Err(ErrorCode::InvalidOwner.into());
+    }
 
-    anchor_lang::solana_program::program::invoke_signed(
-        &transfer_instruction,
-        &[
-            from_account.to_account_info(),
-            to_account.clone(),
-            ctx.accounts.system_program.to_account_info(),
-        ],
-        &[],
-    )?;
+    let from_account = ctx.accounts.config.to_account_info();
+    let to_account = ctx.accounts.owner.to_account_info();
+    let minimum_balance = ctx.accounts.rent.minimum_balance(from_account.data_len());
+
+    let amount = from_account.get_lamports() - minimum_balance;
+    msg!("Config stores {} lamports from minimum {}", from_account.get_lamports(), minimum_balance);
+    
+
+    if amount == 0 {
+        return Err(ErrorCode::InsufficientFunds.into());
+    }
+
+    **from_account.try_borrow_mut_lamports()? -= amount;
+    **to_account.try_borrow_mut_lamports()? += amount;
 
     Ok(())
 }

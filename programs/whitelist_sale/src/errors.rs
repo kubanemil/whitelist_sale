@@ -8,4 +8,6 @@ pub enum ErrorCode {
     PurchaseLimitExceeded,
     #[msg("Insufficient funds.")]
     InsufficientFunds,
+    #[msg("Invalid owner.")]
+    InvalidOwner,
 }

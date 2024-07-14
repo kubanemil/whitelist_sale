@@ -16,6 +16,11 @@ pub struct InitTokenParams {
     pub decimals: u8,
 }
 
+#[account]
+pub struct Config {
+    pub owner: Pubkey,
+}
+
 #[derive(Accounts)]
 #[instruction(
     params: InitTokenParams
@@ -46,6 +51,15 @@ pub struct InitToken<'info> {
         space = 8 + (32*10)
     )]
     pub whitelist: Account<'info, Whitelist>,
+
+    #[account(
+        init,
+        seeds = [b"config"],
+        bump,
+        payer = payer,
+        space = 8 + 32
+    )]
+    pub config: Account<'info, Config>,
 
     pub rent: Sysvar<'info, Rent>,
     pub system_program: Program<'info, System>,
@@ -84,6 +98,9 @@ pub fn init_token_(ctx: Context<InitToken>, metadata: InitTokenParams) -> Result
     create_metadata_accounts_v3(metadata_ctx, token_data, false, true, None)?;
     msg!("Token mint created successfully.");
 
+    let config = &mut ctx.accounts.config;
+    config.owner = ctx.accounts.payer.key();
+    
     let whitelist = &mut ctx.accounts.whitelist;
     whitelist.users.push(ctx.accounts.payer.key());
 

@@ -11,7 +11,7 @@ whitelist_sale = "C8sbuNSCxsqDZdLSqBi7LUBgTYRtjoqgyLARdMq36pvK"
 url = "https://api.apr.dev"
 
 [provider]
-cluster = "Localnet"
+cluster = "devnet"
 wallet = "/home/emil/.config/solana/id.json"
 
 [scripts]
